@@ -16,6 +16,7 @@ int main()
     if (0 == EnumProcesses(processes, sizeof(processes), &cbNeeded))
         return 1;
         */
+    std::cout << "Searching Taskmgr.exe process..." << std::endl;
 
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (INVALID_HANDLE_VALUE == snapshot)
@@ -33,6 +34,7 @@ int main()
     if (FALSE == lastProcessRetval)
         return 1;
 
+    std::cout << "Injecting DLL..." << std::endl;
     injectDll(process.th32ProcessID, "C:\\Users\\dekel\\source\\repos\\DllInjector\\x64\\Debug\\InjectedDll.dll");
     return 0;
 }

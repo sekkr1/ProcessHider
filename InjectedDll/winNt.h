@@ -22,6 +22,6 @@ typedef NTSYSAPI LONG(*RtlCompareUnicodeStringFunc)(
     BOOLEAN          CaseInSensitive
 );
 
-const auto _RtlCompareUnicodeString = reinterpret_cast<RtlCompareUnicodeStringFunc>(GetProcAddress(LoadLibrary("NtosKrnl.exe"), "RtlCompareUnicodeString"));
+RtlCompareUnicodeStringFunc _RtlCompareUnicodeString;
 const auto _NtQuerySystemInformation = reinterpret_cast<NtQuerySystemInformationFunc>(GetProcAddress(GetModuleHandle("ntdll"), "NtQuerySystemInformation"));
-const auto _RtlInitUnicodeString = reinterpret_cast<RtlInitUnicodeStringFunc>(GetProcAddress(LoadLibrary("NtosKrnl.exe"), "RtlInitUnicodeString"));
+RtlInitUnicodeStringFunc _RtlInitUnicodeString;
