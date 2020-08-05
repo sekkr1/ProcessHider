@@ -9,7 +9,7 @@ class InjectableProcess {
 public:
 	InjectableProcess(DWORD pid);
 	static std::vector<InjectableProcess> processesByName(const std::string& name);
-	wil::unique_virtualalloc_ptr<> writeToNewRegion(const void* data, size_t size);
+	wil::unique_virtualalloc_ptr<> writeToNewRegion(const void* data, size_t size, DWORD protect);
 	void injectDll(const std::string& dllName);
 	void releaseDll(const std::string& dllName);
 };

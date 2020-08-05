@@ -17,15 +17,16 @@ std::vector<InjectableProcess> InjectableProcess::processesByName(const std::str
 	std::vector<InjectableProcess> result;
 	PROCESSENTRY32 process;
 	process.dwSize = sizeof(PROCESSENTRY32);
-	while (Process32First(snapshot.get(), &process)) {
+	Process32First(snapshot.get(), &process);
+	do {
 		if (name == process.szExeFile)
 			result.push_back(InjectableProcess(process.th32ProcessID));
-	}
+	} while (Process32Next(snapshot.get(), &process));
 	return result;
 }
 
-wil::unique_virtualalloc_ptr<> InjectableProcess::writeToNewRegion(const void* data, size_t size) {
-	wil::unique_virtualalloc_ptr<> region(VirtualAllocEx(process.get(), NULL, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE));
+wil::unique_virtualalloc_ptr<> InjectableProcess::writeToNewRegion(const void* data, size_t size, DWORD protect = PAGE_EXECUTE_READWRITE) {
+	wil::unique_virtualalloc_ptr<> region(VirtualAllocEx(process.get(), NULL, size, MEM_COMMIT, protect));
 
 	if (NULL == region.get())
 		throw std::exception("Couldn't allocate region");
