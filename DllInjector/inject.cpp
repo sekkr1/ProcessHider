@@ -1,100 +1,67 @@
 #include "inject.h"
-#include <iostream>
+#include "RCE.h"
+#include <psapi.h>
+#include <TlHelp32.h>
 
-struct FreeLibraryRCEParams {
-		BOOL
-		(WINAPI* freeLibrary)(
-			_In_ HMODULE hLibModule
-		);
-		HMODULE
-			(WINAPI*
-			GetModuleHandleA)(
-				_In_opt_ LPCSTR lpModuleName
-			);
-	char* dllName;
-};
-
-#pragma runtime_checks("", off)
-typedef struct {
-	HMODULE (WINAPI *loadLibrary)(_In_ LPCSTR lpLibFileName);
-	char param[256];
-} InjectedFuncParameters;
-
-static DWORD WINAPI injectedFunc(FreeLibraryRCEParams* params) {
-	params->freeLibrary(params->GetModuleHandleA(params->dllName));
-	return 0;
+InjectableProcess::InjectableProcess(DWORD pid) {
+	process = wil::unique_process_handle(OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid));
+	if (NULL == process.get())
+		throw std::exception("Couldn't open process");
 }
 
-static void injectedFuncEnd() {}
-#pragma runtime_checks("", restore)
+std::vector<InjectableProcess> InjectableProcess::processesByName(const std::string& name) {
+	wil::unique_handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+	if (INVALID_HANDLE_VALUE == snapshot.get())
+		throw std::exception("Couldn't create snapshot");
 
-BOOL injectDll(DWORD pid, const std::string& dllName) {
-	HANDLE process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
-	if (NULL == process)
-		return FALSE;
+	std::vector<InjectableProcess> result;
+	PROCESSENTRY32 process;
+	process.dwSize = sizeof(PROCESSENTRY32);
+	BOOL lastProcessRetval = Process32First(snapshot.get(), &process);
+	while (lastProcessRetval) {
+		if (name == process.szExeFile)
+			result.push_back(InjectableProcess(process.th32ProcessID));
+		lastProcessRetval = Process32Next(snapshot.get(), &process);
+	}
+	return result;
+}
 
-	VOID *dllNameRegion = VirtualAllocEx(process, NULL, dllName.size() + 1, MEM_COMMIT, PAGE_READWRITE);
+wil::unique_virtualalloc_ptr<> InjectableProcess::writeToNewRegion(const void* data, size_t size) {
+	wil::unique_virtualalloc_ptr<> region(VirtualAllocEx(process.get(), NULL, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE));
 
-	if (NULL == dllNameRegion)
-		return FALSE;
+	if (NULL == region.get())
+		throw std::exception("Couldn't allocate region");
 
-	SIZE_T bytesWritten;
+	if (0 == WriteProcessMemory(process.get(), region.get(), data, size, NULL))
+		throw std::exception("Couldn't write data to region");
 
-	if (0 == WriteProcessMemory(process, dllNameRegion, dllName.c_str(), dllName.size() + 1, &bytesWritten))
-		return FALSE;
+	return region;
+}
 
-	if (bytesWritten != dllName.size() + 1)
-		return FALSE;
+void InjectableProcess::injectDll(const std::string& dllName) {
+	auto dllNameRegion = writeToNewRegion((void*)dllName.c_str(), dllName.size() + 1);
 
-	DWORD tid;
-	HANDLE thread = CreateRemoteThread(process, NULL, 0, (LPTHREAD_START_ROUTINE)LoadLibrary, dllNameRegion, CREATE_SUSPENDED, &tid);
-	if (NULL == thread)
-		return FALSE;
+	wil::unique_handle thread(CreateRemoteThread(process.get(), NULL, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(LoadLibrary), dllNameRegion.get(), CREATE_SUSPENDED, NULL));
+	if (NULL == thread.get())
+		throw std::exception("Couldn't create remote thread");
 
-	ResumeThread(thread);
-	std::cout << "DLL injected..." << std::endl;
-	WaitForSingleObject(thread, INFINITE);
-	std::cout << "Hook applied! Press any key to unhook" << std::endl;
+	ResumeThread(thread.get());
+	WaitForSingleObject(thread.get(), INFINITE);
+}
 
-	system("Pause");
+void InjectableProcess::releaseDll(const std::string& dllName) {
+	auto dllNameRegion = writeToNewRegion(dllName.c_str(), dllName.size() + 1);
 
-	VOID* paramsRegion = VirtualAllocEx(process, NULL, dllName.size() + 1, MEM_COMMIT, PAGE_READWRITE);
+	RCE::FreeLibraryParams params(static_cast<char*>(dllNameRegion.get()));
+	auto paramsRegion = writeToNewRegion(&params, sizeof(RCE::FreeLibraryParams));
 
-	if (NULL == paramsRegion)
-		return FALSE;
+	auto injectedFuncSize = (size_t)RCE::freeLibraryEnd - (size_t)RCE::freeLibrary;
+	auto injectedFuncRegion = writeToNewRegion(RCE::freeLibrary, injectedFuncSize);
 
-	FreeLibraryRCEParams params{
-		FreeLibrary,
-		GetModuleHandle,
-		(char *)dllNameRegion
-	};
+	wil::unique_handle thread(CreateRemoteThread(process.get(), NULL, 0, (LPTHREAD_START_ROUTINE)injectedFuncRegion.get(), paramsRegion.get(), CREATE_SUSPENDED, NULL));
+	if (NULL == thread.get())
+		throw std::exception("Couldn't create remote thread");
 
-	if (0 == WriteProcessMemory(process, paramsRegion, &params, sizeof(params), &bytesWritten))
-		return FALSE;
-
-	if (bytesWritten != sizeof(params))
-		return FALSE;
-
-	size_t injectedFuncSize = (size_t)injectedFuncEnd - (size_t)injectedFunc;
-	VOID* injectedFuncRegion = VirtualAllocEx(process, NULL, injectedFuncSize, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-
-	if (NULL == injectedFuncRegion)
-		return FALSE;
-
-	if (0 == WriteProcessMemory(process, injectedFuncRegion, injectedFunc, injectedFuncSize, &bytesWritten))
-		return FALSE;
-
-	if (bytesWritten != injectedFuncSize)
-		return FALSE;
-
-	thread = CreateRemoteThread(process, NULL, 0, (LPTHREAD_START_ROUTINE)injectedFuncRegion, (void*)(paramsRegion), CREATE_SUSPENDED, &tid);
-	if (NULL == thread)
-		return FALSE;
-
-	ResumeThread(thread);
-	WaitForSingleObject(thread, INFINITE);
-	std::cout << "Unhooked..." << std::endl;
-	system("pause");
-
-	return TRUE;
+	ResumeThread(thread.get());
+	WaitForSingleObject(thread.get(), INFINITE);
 }

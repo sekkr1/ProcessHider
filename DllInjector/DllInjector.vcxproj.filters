@@ -21,10 +21,19 @@
     <ClCompile Include="inject.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RCE.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="inject.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RCE.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>
