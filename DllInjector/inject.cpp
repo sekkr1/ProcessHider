@@ -17,11 +17,9 @@ std::vector<InjectableProcess> InjectableProcess::processesByName(const std::str
 	std::vector<InjectableProcess> result;
 	PROCESSENTRY32 process;
 	process.dwSize = sizeof(PROCESSENTRY32);
-	BOOL lastProcessRetval = Process32First(snapshot.get(), &process);
-	while (lastProcessRetval) {
+	while (Process32First(snapshot.get(), &process)) {
 		if (name == process.szExeFile)
 			result.push_back(InjectableProcess(process.th32ProcessID));
-		lastProcessRetval = Process32Next(snapshot.get(), &process);
 	}
 	return result;
 }
