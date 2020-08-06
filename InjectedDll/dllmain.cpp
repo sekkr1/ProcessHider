@@ -15,7 +15,8 @@ NtQuerySystemInformationHook(
 );
 
 UNICODE_STRING hiddenImageName;
-Hook<decltype(&NtQuerySystemInformation)> ntQuerySystemInformationHook(_NtQuerySystemInformation, NtQuerySystemInformationHook);
+//Hooking::TrampolineHook<decltype(&NtQuerySystemInformation)> ntQuerySystemInformationHook(_NtQuerySystemInformation, NtQuerySystemInformationHook);
+Hooking::IATHook<decltype(&NtQuerySystemInformation)> ntQuerySystemInformationHook(NtQuerySystemInformationHook, "NtQuerySystemInformation");
 
 __kernel_entry NTSTATUS
 NTAPI
