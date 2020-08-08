@@ -1,7 +1,7 @@
 #include "pch.h"
 #include <winternl.h>
 #include "winNt.h"
-#include "hooker.h"
+#include "HookGod.h"
 #include <memory>
 #include <wil/resource.h>
 
@@ -58,6 +58,7 @@ BOOL APIENTRY DllMain(HMODULE hModule,
 	case DLL_PROCESS_ATTACH:
 		_RtlInitUnicodeString(&hiddenImageName, L"Discord.exe");
 		ntQuerySystemInformationHook.apply();
+		OutputDebugString("READ ME");
 		break;
 	case DLL_THREAD_ATTACH:
 		break;

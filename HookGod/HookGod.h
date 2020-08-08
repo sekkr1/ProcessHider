@@ -6,14 +6,25 @@
 
 namespace Hooking {
 #pragma pack(push,1)
+#ifdef _WIN64
 	class Trampoline {
-		char movabs_rax[2];
+		char movabs_rax[2] = { '\x48', '\xb8' };
 		void* address;
-		char jmp_rax[2];
+		char jmp_rax[2] = { '\xff', '\xe0' };
 	public:
-		Trampoline(void* address);
+		Trampoline(void* address) : address(address) {}
 	};
+#else
+	class Trampoline {
+		char push[1] = { '\x68' };
+		void* address;
+		char ret[1] = { '\xc3' };
+	public:
+		Trampoline(void* address) : address(address) {}
+	};
+#endif
 #pragma pack(pop)
+
 
 	template<typename Fn>
 	class IATHook {
@@ -28,14 +39,13 @@ namespace Hooking {
 			auto optionalHeader = &ntHeader->OptionalHeader;
 			auto dataDirectory = optionalHeader->DataDirectory;
 			auto importDirectory = &dataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-			auto nImportDirectoryEntries = importDirectory->Size / sizeof(IMAGE_IMPORT_DESCRIPTOR);
 			auto importDirectoryDataEntry = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(baseAddr + importDirectory->VirtualAddress);
-			auto found = false;
-			while (0 != importDirectoryDataEntry->Name) {
+			while (NULL != importDirectoryDataEntry->Name) {
 				auto importDirectoryDataEntryName = reinterpret_cast<char*>(baseAddr + importDirectoryDataEntry->Name);
 				auto importDirectoryDataEntryOriginalThunk = reinterpret_cast<IMAGE_THUNK_DATA*>(baseAddr + importDirectoryDataEntry->OriginalFirstThunk);
 				auto i = 0;
-				while (0 != importDirectoryDataEntryOriginalThunk->u1.Ordinal) {
+				auto found = false;
+				while (NULL != importDirectoryDataEntryOriginalThunk->u1.Ordinal) {
 					if (importDirectoryDataEntryOriginalThunk->u1.Ordinal & 0x8000000000000000) {
 						auto importDirectoryDataEntryOriginalThunkOrdinal = static_cast<WORD>(importDirectoryDataEntryOriginalThunk->u1.Ordinal);
 					}
@@ -53,12 +63,11 @@ namespace Hooking {
 					auto importDirectoryDataEntryThunk = reinterpret_cast<IMAGE_THUNK_DATA*>(baseAddr + importDirectoryDataEntry->FirstThunk) + i;
 					iatAddress = reinterpret_cast<Fn*>(&importDirectoryDataEntryThunk->u1.Function);
 					func = *iatAddress;
-					break;
+					return;
 				}
 				importDirectoryDataEntry++;
 			}
-			if (!found)
-				throw std::exception("Imported function couldn't be found");
+			throw std::exception("Imported function couldn't be found");
 		}
 		void apply() {
 			DWORD oldProtect, newProtect = PAGE_EXECUTE_READWRITE;
@@ -81,15 +90,14 @@ namespace Hooking {
 		}
 	};
 
-	template<typename Fn>
 	class TrampolineHook {
-		Fn func;
-		Fn hook;
+		void* func;
+		void* hook;
 		char originalBytes[sizeof(Trampoline)];
 		bool active = false;
 	public:
 		TrampolineHook() = default;
-		TrampolineHook(Fn func, Fn hook) : func(func), hook(hook) {
+		TrampolineHook(void* func, void* hook) : func(func), hook(hook) {
 			memcpy(originalBytes, func, sizeof(Trampoline));
 		}
 		void apply() {
@@ -107,13 +115,6 @@ namespace Hooking {
 			memcpy(func, originalBytes, sizeof(Trampoline));
 			VirtualProtect(func, sizeof(Trampoline), oldProtect, &newProtect);
 			active = false;
-		}
-		template<typename... Args>
-		typename std::result_of<Fn(Args...)>::type callOriginal(Args&&... args) {
-			revert();
-			auto retval = func(std::forward<Args>(args)...);
-			apply();
-			return retval;
 		}
 		~TrampolineHook() {
 			revert();
